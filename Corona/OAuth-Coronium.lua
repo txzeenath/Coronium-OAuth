@@ -94,10 +94,13 @@ end
 OAuth.removeLink = function(cloud, service)
   local function listener(evt)
     if evt.phase == "ended" then
+      for i,v in pairs(evt.response) do
+        print(i,v)
+      end
     end
   end
 
-  local req = cloud:request('/OAuth/removeLink',{sessionID=OAuth.sessionID},listener)
+  local req = cloud:request('/OAuth/removeLink',{sessionID=OAuth.sessionID,service=service},listener)
 end
 --   Start loop and wait for server to verify.
 --   Sets OAuth.UUID on success
