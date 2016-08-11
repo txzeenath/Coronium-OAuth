@@ -8,7 +8,7 @@ Currently supports Google,Facebook and GitHub.
 
 ---
 
-Just some rough notes:
+Just some rough notes (these should be easily adaptable to work outside of the corona module):
 
 ---
 
