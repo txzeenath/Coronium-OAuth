@@ -6,10 +6,12 @@ A coronium plugin to allow secure social logins to your website or app.
 
 Currently supports Google,Facebook and GitHub.
 
+---
 
 Just some rough notes:
 
 ---
+
 ###Request a login URL:
 #####Service is the service's name in all lowercase
 #####UUID and sessionID are for users who are already logged in.
