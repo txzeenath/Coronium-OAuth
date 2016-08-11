@@ -41,7 +41,7 @@ function api.post.requestAccessUrl( input )
   local sessionID = input.sessionID
   local UUID = input.uuid
   local URL,res,err = nil,nil,nil
-  if sessionID then 
+  if UUID then --Trying to link a service
     res,err = OAuthLib.checkAccess(UUID,sessionID)
     if err then cloud.log(err)
       return {status=-1,service=service,error="Access denied for session"} 
