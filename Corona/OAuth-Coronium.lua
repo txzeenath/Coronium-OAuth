@@ -1,6 +1,5 @@
 local OAuth = {}
 local onSimulator = system.getInfo( "environment" ) == "simulator"
-local RGEasyTextField	= require("RGEasyTextField")
 
 OAuth.sessionID = nil
 OAuth.authenticate = nil
