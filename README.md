@@ -16,23 +16,31 @@ Just some rough notes:
 #####Service is the service's name in all lowercase
 #####UUID and sessionID are for users who are already logged in (account linking). They can be nil for a fresh login.
 #####For scopes see your selected service for valid scopes. If this is nil, defaults are used
-######local req = cloud:request('/OAuth/requestAccessUrl',{service=service,scopes=scopes,uuid=OAuth.UUID,sessionID=OAuth.sessionID},listener)
+```lua
+local req = cloud:request('/OAuth/requestAccessUrl',{service=service,scopes=scopes,uuid=OAuth.UUID,sessionID=OAuth.sessionID},listener)
+```
 
 ###Parse URL to get "state" parameter. This is your request key
-######local reqKey = OAuth.parseurl(evt.response.url,"state")
+```lua
+local reqKey = OAuth.parseurl(evt.response.url,"state")
+```
 
 ###Open URL
-######system.openURL( evt.response.url ) 
-
+```lua
+system.openURL( evt.response.url ) 
+```
 ###Poll for login status (I use a 2s timer for this)
 ######Returns 0 for waiting, -1 for error/failed, and 1 for success
-######local req = cloud:request('/OAuth/waitForAuth',{reqKey=reqKey},listener) --and wait
-
+```lua
+local req = cloud:request('/OAuth/waitForAuth',{reqKey=reqKey},listener) --and wait
+```
 ###On success, grab your sessionID and UUID from the reply
-######if evt.response.status == 1 then
-######  OAuth.sessionID = evt.response.sessionID
-######  OAuth.UUID = evt.response.uuid
-######end
+```lua
+if evt.response.status == 1 then
+  OAuth.sessionID = evt.response.sessionID
+  OAuth.UUID = evt.response.uuid
+end
+```
 
 
 ######All requests are done as POST besides the redirect that the service sends.
