@@ -14,10 +14,10 @@ Just some rough notes (these should be easily adaptable to work outside of the c
 
 ###Request a login URL:
 #####Service is the service's name in all lowercase
-#####UUID and sessionID are for users who are already logged in (account linking). They can be nil for a fresh login.
+#####sessionID is for users who are already logged in (account linking). They can be nil for a fresh login.
 #####For scopes see your selected service for valid scopes. If this is nil, defaults are used
 ```lua
-local req = cloud:request('/OAuth/requestAccessUrl',{service=service,scopes=scopes,uuid=OAuth.UUID,sessionID=OAuth.sessionID},listener)
+local req = cloud:request('/OAuth/requestAccessUrl',{service=service,scopes=scopes,sessionID=OAuth.sessionID},listener)
 ```
 
 ###Parse URL to get "state" parameter. This is your request key
@@ -32,16 +32,20 @@ system.openURL( evt.response.url )
 ###Poll for login status (I use a 2s timer for this)
 ######Returns 0 for waiting, -1 for error/failed, and 1 for success
 ```lua
-local req = cloud:request('/OAuth/waitForAuth',{reqKey=reqKey},listener) --and wait
+local req = cloud:request('/OAuth/waitForAuth',{reqKey=reqKey},listener)
 ```
-###On success, grab your sessionID and UUID from the reply
+###On success, grab your sessionID from the reply
 ```lua
 if evt.response.status == 1 then
   OAuth.sessionID = evt.response.sessionID
   OAuth.UUID = evt.response.uuid
 end
 ```
-
+###Optionally, request the internal UUID for the user
+####This ID is used to connect all accounts for that user. It should only be used for server to server calls to link the identitity to other systems.
+```lua
+local req = cloud:request('/OAuth/getUUID',{sessionID=sessionID},listener)
+```
 
 ######All requests are done as POST besides the redirect that the service sends.
 
@@ -69,7 +73,6 @@ function api.post.requestAccessUrl( input )
 For retrieving a login URL for a service
 #####Inputs:   
 service - (service to grab URL for) - string  
-uuid - (current user's UUID) - string  
 sessionID - (current user's sessionID) - string  
 
 #####Returns:   
@@ -99,16 +102,17 @@ error (error) - string
 
 ---
 ```lua
-function api.post.checkAccess(input)
+function api.post.getUUID(input)
 ```
-For checking access of user against their sessionID (secures the profile to a single login point, even if the UUID is 'leaked')
+Request the internal UUID for the user   
+This ID is used to connect all accounts for that user. It should only be used for server to server calls to link the identitity to other systems.   
 #####Inputs:  
-uuid - (user's UUID) - string  
 sessionID - (user's sessionID) - string  
 #####Returns:  
 status (-1 fail,1 success) - int  
 service (always "Unknown") - string  
-error = (error) - string  
+error = (error) - string
+uuid = (unique ID) - string
 
 ---
 ```lua
@@ -116,7 +120,6 @@ function api.post.getList( input )
 ```
 For getting a list of services and scopes for user
 #####Inputs:  
-uuid - (user's UUID) - string  
 sessionID - (user's sessionID) - string  
 #####Returns:  
 status (-1 fail,1 success) - int  
@@ -129,7 +132,6 @@ function api.post.deleteProfile( input )
 ```
 Deletes all auth data for user
 #####Inputs:  
-uuid - (user's UUID) - string  
 sessionID - (user's sessionID) - string  
 #####Returns:  
 status (-1 fail,1 success) - int  
@@ -142,7 +144,6 @@ function api.post.removeLink( input )
 ```
 Removes a service from user's profile
 #####Inputs:  
-uuid - (user's UUID) - string  
 sessionID - (user's sessionID) - string  
 service - (service name) - string  
 #####Returns:
