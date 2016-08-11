@@ -1,7 +1,6 @@
 local OAuth = {}
 local onSimulator = system.getInfo( "environment" ) == "simulator"
 
-OAuth.UUID = nil --Our unique identity.
 OAuth.sessionID = nil
 OAuth.authenticate = nil
 local webView = nil --Forward declare so we can call "toFront" on this from our loading display
@@ -81,12 +80,14 @@ OAuth.getList = function(cloud)
   local function listener(evt)
     if evt.phase == "ended" then
       for i,v in pairs(evt.response.service) do
-        print(i,v)
+        for x,y in pairs(v) do
+          print(x,y)
+        end
       end
     end
   end
 
-  local req = cloud:request('/OAuth/getList',{uuid=OAuth.UUID,sessionID=OAuth.sessionID},listener)
+  local req = cloud:request('/OAuth/getList',{sessionID=OAuth.sessionID},listener)
 end
 
 OAuth.removeLink = function(cloud, service)
@@ -95,7 +96,7 @@ OAuth.removeLink = function(cloud, service)
     end
   end
 
-  local req = cloud:request('/OAuth/removeLink',{service=service,uuid=OAuth.UUID,sessionID=OAuth.sessionID},listener)
+  local req = cloud:request('/OAuth/removeLink',{sessionID=OAuth.sessionID},listener)
 end
 --   Start loop and wait for server to verify.
 --   Sets OAuth.UUID on success
@@ -127,7 +128,6 @@ local function waitForAuth(reqKey,cloud,service,scopes)
       elseif evt.response.status == 1 then
         doLoadingScreen(true,true)
         OAuth.sessionID = evt.response.sessionID
-        OAuth.UUID = evt.response.uuid
         sendOAuthEvent(1,service,nil)
       end
     end
@@ -154,7 +154,7 @@ OAuth.authenticate = function(cloud, service, scopes)
         if onSimulator then
           webView = nil
           system.openURL( evt.response.url )
-          waitForAuth(reqKeyA,cloud,service,scopes) --Wait for server response
+          timer.performWithDelay(2000, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Wait for server response
           return
         end
         local function webListener(event)
@@ -167,7 +167,7 @@ OAuth.authenticate = function(cloud, service, scopes)
                 if transit then transition.cancel(transit);transit=nil end
                 webView:removeSelf() --Close and wait for server response
                 webView = nil
-                waitForAuth(reqKeyA,cloud,service,scopes) --Start waiting
+                timer.performWithDelay(2000, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Start waiting
                 return
               else
                 if transit then transition.cancel(transit);transit=nil end
@@ -185,7 +185,7 @@ OAuth.authenticate = function(cloud, service, scopes)
     end
   end
 
-  local req = cloud:request('/OAuth/requestAccessUrl',{service=service,scopes=scopes,uuid=OAuth.UUID,sessionID=OAuth.sessionID},listener)
+  local req = cloud:request('/OAuth/requestAccessUrl',{service=service,scopes=scopes,sessionID=OAuth.sessionID},listener)
   return true
 end
 

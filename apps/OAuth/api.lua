@@ -8,12 +8,11 @@ local OAuthLib = require("OAuth.OAuthLib")
 --Parameters
 -----------------------------------------------------------------------------------------
 OAuthLib.supported_services = {google=true,facebook=true,github=true,slack=false,foursquare=false,dropbox=false,twitter=false} -- must match with service module name
-OAuthLib.tablePrefix = "TESTB" -- Must not be nil. This is the prefix for all tables created and read by this API
+OAuthLib.tablePrefix = "TESTD" -- Must not be nil. This is the prefix for all tables created and read by this API
 OAuthLib.makeTables = true --Automatically make tables if they're missing. This can be turned off after the first execution except when adding new services.
-OAuthLib.authTableName = OAuthLib.tablePrefix.."_QUEUE"
 OAuthLib.conTab = require("tinywar-DBController.dbParams").conTab() -- This an instance of a MySql parameter table. You can just put a normal table here.
 OAuthLib.conTab['database'] = 'REG_TINYWAR'
-
+OAuthLib.init()
 --===========================================================================--
 --== Routing Methods
 --===========================================================================--
@@ -31,16 +30,9 @@ function api.post.requestAccessUrl( input )
   local service = input.service
   if not service then return {error="Service must be specified"} end
   if not OAuthLib.supported_services[service] then return {status=-1,service=service,error="Unsupported service: " .. service} end
-  local sessionID = input.sessionID
-  local UUID = input.uuid
-  local URL,res,err = nil,nil,nil
-  if sessionID then 
-    res,err = OAuthLib.checkAccess(UUID,sessionID)
-    if err then cloud.log(err)
-      return {status=-1,service=service,error="Access denied for session"} 
-    end
-  end
-  URL,err = OAuthLib.makeAccessUrl(service,UUID,input.scopes)
+  local URL,err = nil,nil,nil
+
+  URL,err = OAuthLib.makeAccessUrl(service,input.sessionID,input.scopes)
   if err then 
     cloud.log(err)
     return {status=-1,service=service,error="Failed to generate URL"}
@@ -82,121 +74,100 @@ function api.post.waitForAuth(input)
   local reqKey = input.reqKey
   if not reqKey then return {status=-1,service="Unknown",error="No reqKey provided"} end
 
-  local status,service,err,UUID = OAuthLib.checkAuthStatus(reqKey)
+  local status,service,err,sessionID = OAuthLib.checkAuthStatus(reqKey)
   if err then
     cloud.log(err)
     return {status=-1,service=(service or "Unknown"),error="Error checking status"}
   end
-  local sessionID = nil
-  if UUID then
-    sessionID,err = OAuthLib.getSessionID(UUID)
-    if err then
-      cloud.log(err)
-      return {status=-1,service=service,error="Error getting session ID"}
-    end
-  end
 
-  return {status=status,service=service,error=nil,uuid=UUID,sessionID=sessionID} --Otherwise report the status
+  return {status=status,service=service,error=nil,sessionID=sessionID} --Otherwise report the status
 end
 
 ---------------------------------------------------------------------------------------------------
 --- User management/Protected functions - These require a matching session ID
 --------------------------------------------------------------------------------------------------
-function api.post.checkAccess(input)
-  local UUID = input.uuid
+
+function api.post.getList( input )
   local sessionID = input.sessionID
-  if not UUID or not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
-  local res,err = (OAuthLib.checkAccess(UUID,sessionID)
-    if err then 
-      cloud.log(err)
-      return {status=-1,service="Unknown",error="Access denied"} 
-    end
+  if not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
+  local res,err = OAuthLib.getUser(nil,sessionID)
+  local UUID = res[1]['UUID']
+  if err or not UUID then 
+    cloud.log(err) 
+    return {status=-1,service="Unknown",error="Access denied for session"} 
+  end
+  debug("Getting user's authorization list")
 
-    return {status=1,service="Unknown",error=nil}
+  res,err = OAuthLib.getKeys(UUID,nil,10)
+  if err then return {status=-1,service="Unknown",error="Failed to get keys"} end
+  local service = {}
+  for i=1,#res do
+    service[i] = {res[i]['SERVICE'],res[i]['SCOPES']}
   end
 
-  function api.post.getList( input )
-    local UUID = input.uuid
-    local sessionID = input.sessionID
-    if not UUID or not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
-    local res,err = OAuthLib.checkAccess(UUID,sessionID)
-    if err then 
-      cloug.log(err) 
-      return {status=-1,service="Unknown",error="Access denied for session"} 
-    end
-    debug("Getting user's authorization list")
+  if not next(service) then return {status=-1,service="Unknown",error="No authorizations found"} end
 
-    local service = {}
-    for i,v in pairs(OAuthLib.supported_services) do
-      if v then
-        res,err = OAuthLib.getKeys(UUID,nil,i)
-        if err then 
-          cloud.log(err)
-          return {status=-1,service={i},error="Failed to get data for "..i} 
-        end
-        if res then
-          service[i] = res[1]['SCOPES']
-        end
+  return {status=1,service=service,error=nil}
+end
+
+
+function api.post.deleteProfile( input )
+  local sessionID = input.sessionID
+  if not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
+  local res,err = OAuthLib.getUser(nil,sessionID)
+  if err then cloud.log(err); return {status=-1,service="Unknown",error="Access denied for session"} end
+  local UUID = res[1]['UUID']
+  if not UUID then return {status=-1,service="Unknown",error="No user found"} end
+  debug("User deleting account")
+  local removed = {}
+  for i,v in pairs(OAuthLib.supported_services) do
+    if v then
+      res,err = OAuthLib.removeAuth(i,UUID)
+      if err then 
+        cloud.log(err)
+        return {status=-1,service=removed,error="Failed to remove authorization for "..i} 
       end
+      if res then debug(res); removed[#removed+1] = i end
     end
-
-    if not next(service) then return {status=-1,service="Unknown",error="No authorizations found"} end
-
-    return {status=1,service=service,error=nil}
   end
 
---Return true/nil,service,error
-  function api.post.deleteProfile( input )
-    local UUID = input.uuid
-    local sessionID = input.sessionID
-    if not UUID or not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
-    local res,err = OAuthLib.checkAccess(UUID,sessionID)
-    if err then 
-      cloug.log(err)
-      return {status=-1,service="Unknown",error="Access denied for session"} 
-    end
+  return {status=1,service=removed,error=nil}
+end
 
-    debug("User deleting account")
-    local removed = {}
-    for i,v in pairs(OAuthLib.supported_services) do
-      if v then
-        res,err = OAuthLib.removeAuth(i,UUID)
-        if err then 
-          cloud.log(err)
-          return {status=-1,service=removed,error="Failed to remove authorization for "..i} 
-        end
-        if res then debug(res); removed[#removed+1] = i end
-      end
-    end
-
-    return {status=1,service=removed,error=nil}
-  end
-
+--Returns a user's unique ID
+function api.post.getUUID(input)
+  local sessionID = input.sessionID
+  if not sessionID then return {status=-1,service=service,error="Access denied"} end
+  local res,err = OAuthLib.getUser(nil,sessionID)
+  if err then cloud.log(err); return {status=-1,service="Unknown",error="Access denied for session"} end
+  local UUID = res[1]['UUID']
+  if not UUID then return {status=-1,service="Unknown",error="No user found"} end
+  
+  return {status=1,service="Unknown",error=nil,uuid=UUID}
+end
 
 --Returns true/nil,service,error
-  function api.post.removeLink( input )
-    local service = input.service
-    local UUID = input.uuid
-    local sessionID = input.sessionID
-    if not service then return {status=-1,service="Unknown",error="Service must be specified"} end
-    if not UUID or not sessionID then return {status=-1,service=service,error="Access denied"} end
-    if not OAuthLib.supported_services[service] then return {status=-1,service=service,error="Unsupported service"} end
-    local res,err = OAuthLib.checkAccess(UUID,sessionID)
-    if err then 
-      cloug.log(err)
-      return {status=-1,service=service,error="Access denied for session"} 
-    end
+function api.post.removeLink( input )
+  local service = input.service
+  local sessionID = input.sessionID
+  if not service then return {status=-1,service="Unknown",error="Service must be specified"} end
+  if not sessionID then return {status=-1,service=service,error="Access denied"} end
+  if not OAuthLib.supported_services[service] then return {status=-1,service=service,error="Unsupported service"} end
+  local res,err = OAuthLib.getUser(nil,sessionID)
+  if err then cloud.log(err); return {status=-1,service="Unknown",error="Access denied for session"} end
+  local UUID = res[1]['UUID']
+  if not UUID then return {status=-1,service="Unknown",error="No user found"} end
 
-    debug("User removing linked account")
-    res,err = OAuthLib.removeAuth(service,UUID)
-    if res then debug(res) end
-    if err then 
-      cloud.log(err)
-      return {status=-1,service=service,error="ERROR: Failed to remove link."} 
-    end
-    if not res then return {status=-1,service=service,error="No authorization found."} end
+  debug("User removing linked account")
+  res,err = OAuthLib.removeAuth(service,UUID)
+  if res then debug(res) end
+  if err then 
+    cloud.log(err)
+    return {status=-1,service=service,error="ERROR: Failed to remove link."} 
+  end
+  if not res then return {status=-1,service=service,error="No authorization found."} end
 
-    return {status=true,service=service,error=nil}
-  end  
+  return {status=true,service=service,error=nil}
+end  
 --===========================================================================--
-  return api
+return api

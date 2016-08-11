@@ -1,29 +1,36 @@
 local OAuthLib = {}
 
 local debugging = true
+local queueTableName = nil
+local keyTableName = nil
+local userTableName = nil
 
 local function debug(string)
   if debugging == true then cloud.log(string) end
 end
+OAuthLib.init = function()
+  queueTableName = OAuthLib.tablePrefix.."_".."QUEUE"
+  keyTableName = OAuthLib.tablePrefix.."_".."KEYS"
+  userTableName = OAuthLib.tablePrefix.."_".."USERS"
+end
 
 local function createTables()
-  local result,err = cloud.mysql.query(OAuthLib.conTab,
-    "CREATE TABLE IF NOT EXISTS `"..OAuthLib.authTableName.."` (`reqKey` varchar(64) NULL, `TIME` int(32) NULL, `SERVICE` varchar(32) NULL,`SCOPES` varchar(64) NULL,`STATUS` tinyint(1) NULL, `UUID` varchar(64) NULL, PRIMARY KEY (`reqKey`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
+  local res,err = cloud.mysql.query(OAuthLib.conTab,
+    "CREATE TABLE IF NOT EXISTS `"..queueTableName.."` (`reqKey` varchar(36) NULL, `EXPIRES` int(16) NULL, `SERVICE` varchar(16) NULL,`SCOPES` varchar(512) NULL,`STATUS` tinyint(1) NULL, `SESSIONID` varchar(36) NULL, PRIMARY KEY (`reqKey`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
   end
-  local keyTableName = nil
-  for i,v in pairs(OAuthLib.supported_services) do
-    if v then
-      keyTableName = OAuthLib.tablePrefix.."_"..i.."_KEYS"
-      local result,err = cloud.mysql.query(OAuthLib.conTab,
-        "CREATE TABLE IF NOT EXISTS `"..keyTableName.."` (`UUID` varchar(64) NULL, `OAUTH_ID` varchar(64) NULL, `REFRESH` varchar(64) NULL, `ACTIVE` varchar(64) NOT NULL,`EXPIRES` int(64) NULL,`SESSIONID` varchar(64) NULL, `SCOPES` varchar(512),`lastUsed` int(16) NULL,INDEX (`UUID`),PRIMARY KEY(`OAUTH_ID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
-
-      if err then 
-        return nil,err
-      end
-    end
+  res,err = cloud.mysql.query(OAuthLib.conTab,
+    "CREATE TABLE IF NOT EXISTS `"..userTableName.."` (`UUID` varchar(36) NULL, `sessionID` varchar(36) NULL, `lastLogin` int(16) NULL, PRIMARY KEY (`UUID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
+  if err then
+    return nil,err
   end
+  res,err = cloud.mysql.query(OAuthLib.conTab,
+    "CREATE TABLE IF NOT EXISTS `"..keyTableName.."` (`UUID` varchar(36) NULL, `SERVICE` varchar(16) NULL, `OAUTH_ID` varchar(32) NULL,`REFRESH` varchar(64) NULL,`ACTIVE` varchar(64) NULL, `EXPIRES` int(16) NULL, `SCOPES` varchar(512) NULL, `CREATED` int(16) NULL, PRIMARY KEY (`UUID`,`OAUTH_ID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
+  if err then
+    return nil,err
+  end
+
 end
 
 --reqKey is optional and will forcibly remove the entry from the table
@@ -31,21 +38,20 @@ local function pruneAuth(reqKey)
   if not reqKey then reqKey = "" end --Make an empty string so we don't get a concat error
   local db = cloud.mysql.databag(OAuthLib.conTab)
   local result,err = db:delete({
-      tableName=OAuthLib.authTableName,
-      where = "TIME < "..cloud.time.epoch()-(60*5).." OR `reqKey`="..cloud.mysql.string(reqKey) --Codes are good for 5 minutes, and then they get wiped
+      tableName=queueTableName,
+      where = "`EXPIRES` < "..cloud.time.epoch().." OR `reqKey`="..cloud.mysql.string(reqKey)
     })
   return result,err
 end
 
 
---Remove an authorization key from table
+--Remove an authorization key from table for user
 OAuthLib.removeAuth = function(service,UUID)
   if not UUID or not service then return nil,"Can't remove auth: Parameters missing" end
-  local keyTableName = OAuthLib.tablePrefix.."_"..service.."_KEYS"
   local db = cloud.mysql.databag(OAuthLib.conTab)
   local result,err = db:delete({
       tableName=keyTableName,
-      where = "`UUID` = "..cloud.mysql.string(UUID),
+      where = '`UUID` = '..cloud.mysql.string(UUID)..' AND `SERVICE`='..cloud.mysql.string(service),
       limit=1
     })
   return result,err
@@ -60,10 +66,10 @@ end
 --  0 = pending
 --  1 = successful. Waiting for client to acknowledge
 -- -1 = failed. Client should try again.
-local function setAuthStatus(reqKey,statusCode,UUID)
+local function setAuthStatus(reqKey,statusCode,sessionID)
   local query = nil
-  if not UUID then UUID = 'NULL' else UUID = cloud.mysql.string(UUID) end
-  query = "UPDATE "..OAuthLib.authTableName.." SET `STATUS`="..statusCode..",`UUID`=COALESCE("..UUID..",`UUID`) where `reqKey`="..cloud.mysql.string(reqKey).." LIMIT 1;"
+  if not sessionID then sessionID = 'NULL' else sessionID = cloud.mysql.string(sessionID) end
+  query = "UPDATE "..queueTableName.." SET `STATUS`="..statusCode..",`SESSIONID`=COALESCE("..sessionID..",`SESSIONID`) where `reqKey`="..cloud.mysql.string(reqKey).." LIMIT 1;"
   local result,err = cloud.mysql.query(OAuthLib.conTab,query)
 
   if not result or not next(result) or err then return nil,(err or "Unknown") end
@@ -73,32 +79,33 @@ end
 --Get entry from auth queue
 local function getAuth(reqKey)
   local db = cloud.mysql.databag(OAuthLib.conTab)
-  local result,err = db:select({
-      tableName=OAuthLib.authTableName,
+  local res,err = db:select({
+      tableName=queueTableName,
       where = "`reqKey`="..cloud.mysql.string(reqKey),
       limit = 1
     })
 
-  if next(result) then
-    for i,v in pairs(result[1]) do
-      if v == ngx.null then result[1][i] = nil end
+  if next(res) then
+    for i,v in pairs(res[1]) do
+      if v == ngx.null then res[1][i] = nil end
     end
   else
-    result = nil --We don't pass empty tables back
+    res = nil --We don't pass empty tables back
   end
-  return result,err
+  if not res then return nil,"No user found" end
+  return res,err
 end
 
 --Write entry to auth queue
-local function writeAuth(reqKey,service,scopes,status,UUID)
+local function writeAuth(reqKey,service,scopes,status,sessionID)
   local columns = nil
-  if UUID then columns = {'reqKey','TIME','SERVICE','SCOPES','STATUS','UUID'}
-  else columns = {'reqKey','TIME','SERVICE','SCOPES','STATUS'} end
+  if sessionID then columns = {'reqKey','EXPIRES','SERVICE','SCOPES','STATUS','SESSIONID'}
+  else columns = {'reqKey','EXPIRES','SERVICE','SCOPES','STATUS'} end
   local db = cloud.mysql.databag(OAuthLib.conTab)
   local result,err = db:insert({
-      tableName=OAuthLib.authTableName,
+      tableName=queueTableName,
       columns=columns,
-      values = {reqKey,cloud.time.epoch(),service,scopes,status,UUID}
+      values = {reqKey,cloud.time.epoch()+(60*5),service,scopes,status,sessionID}
     })
 
 
@@ -106,9 +113,6 @@ local function writeAuth(reqKey,service,scopes,status,UUID)
   return result,err
 end
 
---Inserts keys as provided
---If entry already exists, updates active,lastUsed and expires.
---OAUTH_ID is never changed.
 local function writeKeys(UUID,OID,service,refresh,active,expires,scopes)
   if not UUID or not service or not active or not OID then
     cloud.log("Missing arguments to writeKeys function!")
@@ -116,221 +120,235 @@ local function writeKeys(UUID,OID,service,refresh,active,expires,scopes)
   end
   if not expires then expires = 999999999 end --Never expires
   if not refresh then refresh = 'NULL' end
-  local keyTableName = OAuthLib.tablePrefix.."_"..service.."_KEYS"
 
+  local UUID = cloud.mysql.string(UUID)
+  local OID = cloud.mysql.string(OID)
+  local refresh = cloud.mysql.string(refresh)
+  local active = cloud.mysql.string(active)
+  local scopes = cloud.mysql.string(scopes)
+  local expires = cloud.time.epoch()+tonumber(expires)
+  local service = cloud.mysql.string(service)
   local query = nil
-  query = "INSERT INTO `"..keyTableName.."` (`UUID`, `OAUTH_ID`,`REFRESH`, `ACTIVE`, `EXPIRES`,`SCOPES`,`lastUsed`) VALUES ("..cloud.mysql.string(UUID)..",".. cloud.mysql.string(OID)..","..cloud.mysql.string(refresh)..",".. cloud.mysql.string(active)..",".. cloud.time.epoch()+tonumber(expires)..","..cloud.mysql.string(scopes)..","..cloud.time.epoch()..") ON DUPLICATE KEY UPDATE `UUID`=VALUES(`UUID`),`ACTIVE`=VALUES(`ACTIVE`),`REFRESH`=VALUES(`REFRESH`),`SCOPES`=VALUES(`SCOPES`),`EXPIRES`=VALUES(`EXPIRES`),`lastUsed`=VALUES(`lastUsed`);"
+  local tables = "(`UUID`,`SERVICE`,`OAUTH_ID`,`REFRESH`,`ACTIVE`,`EXPIRES`,`SCOPES`,`CREATED`)"
+  local values = "VALUES("..UUID..","..service..","..OID..","..refresh..","..active..","..expires..","..scopes..","..cloud.time.epoch()..")"
+  local onDup = "`ACTIVE`=VALUES(`ACTIVE`),`REFRESH`=VALUES(`REFRESH`),`SCOPES`=VALUES(`SCOPES`),`EXPIRES`=VALUES(`EXPIRES`)"
 
-  local result,err = cloud.mysql.query(OAuthLib.conTab, query)
+  query = "INSERT INTO `"..keyTableName.."` "..tables.." "..values.." ON DUPLICATE KEY UPDATE "..onDup..";"
+  local res,err = cloud.mysql.query(OAuthLib.conTab, query)
 
 
-  if not result or not next(result) then return nil,err end
-  return result,err
+  if not res or not next(res) then return nil,(err or "Unknown") end
+  return res,err
 end
 
-local function writeSessionID(UUID,sessionID)
-  if not UUID then return nil,"No identity to set sessionID" end
-  if not sessionID then return nil,"Need a sessionID to be able to set it" end
-  debug("Writing session ID")
 
-  local query=nil
-  local keyTableName = nil
-  local res,err=nil,nil
-  for i,v in pairs(OAuthLib.supported_services) do
-    if v then
-      keyTableName = OAuthLib.tablePrefix.."_"..i.."_KEYS"
-      query = "UPDATE "..keyTableName.." SET `SESSIONID`="..cloud.mysql.string(sessionID).." where `UUID` ="..cloud.mysql.string(UUID).." LIMIT 1;"
-      res,err = cloud.mysql.query(OAuthLib.conTab,query)
-      if err then return nil,err end
-    end
+local function writeUser(UUID,sessionID)
+  if not UUID or not sessionID then
+    cloud.log("Missing arguments to writeUser function!")
+    return nil,"Missing arguments"
   end
-  return true,nil
+
+  UUID = cloud.mysql.string(UUID)
+  sessionID = cloud.mysql.string(sessionID)
+  local query = nil
+  local tables = "(`UUID`, `SESSIONID`,`lastLogin`)"
+  local values = "VALUES("..UUID..","..sessionID..","..cloud.time.epoch()..")"
+  local onDup = "`SESSIONID`=VALUES(`SESSIONID`),`lastLogin`=VALUES(`lastLogin`)"
+  
+  query = "INSERT INTO `"..userTableName.."` "..tables.." "..values.." ON DUPLICATE KEY UPDATE "..onDup..";"
+
+  local res,err = cloud.mysql.query(OAuthLib.conTab, query)
+
+
+  if not res or not next(res) then return nil,(err or "Unknown") end
+  return res,err
 end
 
 --Can check for UUID or OAuthID to grab keys
-OAuthLib.getKeys = function(UUID,OAuthID,service)
-  local keyTableName = OAuthLib.tablePrefix.."_"..service.."_KEYS"
-
-  if not UUID then UUID = "" end
-  if not OAuthID then OAuthID = "" end
-  local db = cloud.mysql.databag(OAuthLib.conTab)
-  local result,err = db:select({
-      tableName=OAuthLib.tablePrefix.."_"..service.."_KEYS",
-      where = "`UUID`="..cloud.mysql.string(UUID).." OR `OAUTH_ID`="..cloud.mysql.string(OAuthID),
-      limit = 1
-    })
-
-  if next(result) then
-    for i,v in pairs(result[1]) do
-      if v == ngx.null then result[1][i] = nil end --This might make holes in the table
+OAuthLib.getKeys = function(UUID,OAuthID,limit,column)
+  if not UUID and not OAuthID then return nil,"Missing params to get keys" end
+    if not UUID then UUID = "" end
+    if not OAuthID then OAuthID = "" end
+    UUID = cloud.mysql.string(UUID)
+    OAuthID = cloud.mysql.string(OAuthID)
+    if not column then column = "*" end
+    local query = "SELECT "..column.." FROM "..keyTableName.." WHERE `UUID`="..UUID.." OR `OAUTH_ID`="..OAuthID.." LIMIT "..limit..";"
+    local res,err = cloud.mysql.query(OAuthLib.conTab,query)
+    
+    if err then return nil,err end
+    
+    if next(res) then
+      for i=1,#res do
+        for x,v in pairs(res[i]) do
+          if v == ngx.null then res[i][x] = nil end --This might make holes in the table
+        end
+      end
+    else
+      res = nil --But we don't pass empty tables back
     end
-  else
-    result = nil --But we don't pass empty tables back
-  end
-  
-  return result,err
-end
 
-OAuthLib.getSessionID = function(UUID)
-  if not UUID then return nil,"Missing params to get session ID" end
-  debug("Getting session ID")
-  local res,err = nil,nil
-  local sessionDB = nil
-  for i,v in pairs(OAuthLib.supported_services) do
-    if v then
-      res,err = OAuthLib.getKeys(UUID,nil,i)
-      if err then return nil,err end
-      if res then
-        sessionDB = res[1]['SESSIONID']
-        if sessionDB then return sessionDB,nil end
+    return res,err
+  end
+
+--Gets a user row from a UUID or sessionID
+  OAuthLib.getUser = function(UUID,sessionID)
+    if not UUID and not sessionID then return nil,"Missing params to get user" end
+    debug("Getting user")
+    if not UUID then UUID = "" end
+    if not sessionID then sessionID = "" end
+    UUID = cloud.mysql.string(UUID)
+    sessionID = cloud.mysql.string(sessionID)
+    local db = cloud.mysql.databag(OAuthLib.conTab)
+    local res,err = db:select({
+        tableName=userTableName,
+        where = "`UUID`="..UUID.." OR `SESSIONID`="..sessionID,
+        limit = 1
+      })
+    if err then return nil,err end
+    
+    if next(res) then
+      for i,v in pairs(res[1]) do
+        if v == ngx.null then res[1][i] = nil end --This might make holes in the table
+      end
+    else
+      res = nil --But we don't pass empty tables back
+    end
+    
+    if not res then return nil,"No user found" end
+    
+    return res,nil
+  end
+
+
+  OAuthLib.makeAccessUrl = function(service,sessionID,inScopes)
+    local res,err = nil,nil
+    if OAuthLib.makeTables then 
+      res,err = createTables() --Create all tables
+      if err then cloud.log(err) end
+    end
+    local proc = require("OAuth.service."..service)
+    local auth = proc.auth_url
+    local redirect = proc.redirect_url
+    local clientID = proc.client_id
+    local reqKey = cloud.uuid() --Generate a unique key for this request
+    local scopes = ""
+    scopes = proc.defaultScopes --Grab default scope
+    if inScopes then
+      for i=1,#inScopes do
+        scopes = scopes.." "..inScopes[i] --Add on our requested scopes
       end
     end
+    --Build auth URL
+    local URL = cloud.sf("%s?redirect_uri=%s&response_type=%s&client_id=%s&scope=%s&approval_prompt=%s&access_type=%s&state=%s", auth, redirect, "code", clientID, scopes, "auto", "offline",reqKey)
+    res,err = writeAuth(reqKey,service,scopes,0,sessionID)
+    if err then return nil,err end
+
+    return URL,nil
   end
 
-  return nil,"No session ID could be found"
-end
+  OAuthLib.processRedirect = function(reqKey,code)
+    if not reqKey or not code then return nil,"Response parameters missing." end
 
-OAuthLib.checkAccess = function(UUID,sessionID)
-  if not UUID or not sessionID then return nil,"Missing params to check access" end
-  debug("Checking access for user")
-  local sessionDB,err = OAuthLib.getSessionID(UUID)
-  if err then cloud.log(err); return nil,err end
-
-  if sessionDB and sessionDB == sessionID then return true,nil end
-
-  return false,"Invalid sessionID"
-end
-
-
-OAuthLib.makeAccessUrl = function(service,UUID,inScopes)
-  if OAuthLib.makeTables then createTables() end --Create all tables
-  local res,err = nil,nil
-  local proc = require("OAuth.service."..service)
-  local auth = proc.auth_url
-  local redirect = proc.redirect_url
-  local clientID = proc.client_id
-  local reqKey = cloud.uuid() --Generate a unique key for this request
-  local scopes = ""
-  scopes = proc.defaultScopes --Grab default scope
-  if inScopes then
-    for i=1,#inScopes do
-      scopes = scopes.." "..inScopes[i] --Add on our requested scopes
+    --Check if this reqKey initiated an auth request
+    local res,err = getAuth(reqKey)
+    if err then return nil,err end
+    local service = res[1]['SERVICE']
+    local scopes = res[1]['SCOPES']
+    local sessionID = res[1]['SESSIONID']
+    if not service or not scopes then 
+      setAuthStatus(reqKey,-1,nil)
+      return nil,"Missing parameter from database" 
     end
-  end
-  --Build auth URL
-  local URL = cloud.sf("%s?redirect_uri=%s&response_type=%s&client_id=%s&scope=%s&approval_prompt=%s&access_type=%s&state=%s", auth, redirect, "code", clientID, scopes, "auto", "offline",reqKey)
-  res,err = writeAuth(reqKey,service,scopes,0,UUID)
-  if err then return nil,err end
+    local proc = require("OAuth.service."..service)
+    --Build token request
+    local redirect = proc.redirect_url
+    local clientID = proc.client_id
+    local secret = proc.client_secret
+    local tokenHost = proc.token_urn_host
+    local tokenPath = proc.token_urn_path
 
-  return URL,nil
-end
+    --Exchange code for token
+    local reqString = cloud.sf("code=%s&redirect_uri=%s&client_id=%s&client_secret=%s&scope=%s&grant_type=%s", code, redirect, clientID, secret, scopes, "authorization_code")
 
-OAuthLib.processRedirect = function(reqKey,code)
-  local setData,getData,resp,err,errStr = nil,nil,nil,nil,nil
-  if not reqKey or not code then return nil,"Response parameters missing." end
-
-  --Check if this reqKey initiated an auth request
-  getData,err = getAuth(reqKey)
-  if err or not getData then return nil,(err or "Invalid state. Expired or not found.") end
-  local service = getData[1]['SERVICE']
-  local scopes = getData[1]['SCOPES']
-  local UUID = getData[1]['UUID']
-  if not service or not scopes then 
-    setAuthStatus(reqKey,-1,nil)
-    return nil,"Missing parameter from database" 
-  end
-  local proc = require("OAuth.service."..service)
-  --Build token request
-  local auth = proc.auth_url
-  local redirect = proc.redirect_url
-  local clientID = proc.client_id
-  local secret = proc.client_secret
-  local tokenHost = proc.token_urn_host
-  local tokenPath = proc.token_urn_path
-
-  --Exchange code for token
-  local reqString = cloud.sf("code=%s&redirect_uri=%s&client_id=%s&client_secret=%s&scope=%s&grant_type=%s", code, redirect, clientID, secret, scopes, "authorization_code")
-
-  local servNet = cloud.network.new(tokenHost,443)
-  servNet:method(cloud.POST)
-  servNet:ssl_verify(true)
-  servNet:body(reqString)
-  servNet:path(tokenPath)
-  servNet:keep_alive(5000,10)
-  servNet:headers({
-      ['Content-Type'] = 'application/x-www-form-urlencoded',
-      ['Content-Length'] = string.len(servNet:body()),
-      ['Accept'] = 'application/json'
-    })
-  resp,err = servNet:result()
-  if err then 
-    setAuthStatus(reqKey,-1,nil)
-    return nil,err
-  end
-
-  local resp = cloud.decode.json(resp)
-  if not resp or not next(resp) then
-    setAuthStatus(reqKey,-1,nil)
-    return nil,"Could not decode response."
-  end
-
-  --Use our service specific processing function to generate the needed information.
-  --     ID,access,expire,type,refresh,error
-  local tID,aToken,eToken,tToken,rToken,err = proc.processForID(reqKey,resp)
-  if err then
-    setAuthStatus(reqKey,-1,nil)
-    return nil,err
-  end
-  local sessionID = nil
-  if not UUID then -- No UUID was provided with the request. Check for an existing entry with this auth ID
-    sessionID = cloud.uuid() --Generate a session ID for this login
-    local getData,err = OAuthLib.getKeys(nil,tID,service)
+    local servNet = cloud.network.new(tokenHost,443)
+    servNet:method(cloud.POST)
+    servNet:ssl_verify(true)
+    servNet:body(reqString)
+    servNet:path(tokenPath)
+    servNet:keep_alive(5000,10)
+    servNet:headers({
+        ['Content-Type'] = 'application/x-www-form-urlencoded',
+        ['Content-Length'] = string.len(servNet:body()),
+        ['Accept'] = 'application/json'
+      })
+    res,err = servNet:result()
     if err then 
       setAuthStatus(reqKey,-1,nil)
-      return nil,"Error retrieving key table."
+      return nil,err
     end
-    if getData then UUID = getData[1]['UUID'] end
-  end
-  if not UUID then UUID = cloud.uuid() end --No UUID existing or provided. Create a new one
 
-  --Whatever UUID gets passed here is this user's permanent ID that links all of their
-  --logins together. This will either be a random ID or the one provided by the client.
-  setData,err = setAuthStatus(reqKey,0,UUID) --Write ID here so user can grab it
-  if err then setAuthStatus(reqKey,-1,nil) return nil,err end
-  if sessionID then 
-    setData,err = writeSessionID(UUID,cloud.uuid())
+    res = cloud.decode.json(res)
+    if not res or not next(res) then
+      setAuthStatus(reqKey,-1,nil)
+      return nil,"Could not decode response."
+    end
+
+    --Use our service specific processing function to generate the needed information.
+    --     ID,access,expire,type,refresh,error
+    local tID,aToken,eToken,tToken,rToken,err = proc.processForID(reqKey,res)
+    if err then setAuthStatus(reqKey,-1); return nil,err end
+    local UUID = nil
+    
+    if not sessionID then -- No sessionID was found in request.
+      sessionID = cloud.uuid() --Generate a session ID for this login
+      local res,err = OAuthLib.getKeys(nil,tID,1,UUID) --Check for an existing OAuth ID
+      if err then cloud.log(err); setAuthStatus(reqKey,-1); return nil,"Error retrieving key table." end
+      if res then UUID = res[1]['UUID'] end
+    else --Session was provided, find user
+      res,err = OAuthLib.getUser(nil,sessionID)
+      if err then setAuthStatus(reqKey,-1); return nil,err end
+      UUID = res[1]['UUID']
+      if not UUID then setAuthStatus(reqKey,-1); return nil,"No UUID found" end
+    end
+
+    if not UUID then UUID = cloud.uuid() end --No UUID found in keys or session. Create a new one
+
+    res,err = setAuthStatus(reqKey,0,sessionID) --Write session ID here so user can grab it
+    if err then setAuthStatus(reqKey,-1); return nil,err end
+
+    res,err = writeUser(UUID,sessionID)
+    if err then setAuthStatus(reqKey,-1); return nil,err end
+
+    res,err = writeKeys(UUID,tID,service,rToken,aToken,eToken,scopes)
+    if err then setAuthStatus(reqKey,-1); return nil,err end
+
+    res,err = setAuthStatus(reqKey,1,nil)
     if err then cloud.log(err) end
-  end
-  setData,err = writeKeys(UUID,tID,service,rToken,aToken,eToken,scopes)
-  if err then setAuthStatus(reqKey,-1) return nil,err
-  else setData,err = setAuthStatus(reqKey,1,nil)
-    if err then cloud.log(err) end
+
     return true,nil
   end
 
-  return nil,"Unknown"
-end
+  OAuthLib.checkAuthStatus = function(reqKey)
+    local getData,err = getAuth(reqKey)
+    if err or not getData then return nil,nil,(err or "Invalid reqKey. Expired or not found."),nil end
+    local status = getData[1]['STATUS']
+    local service = getData[1]['SERVICE']
+    local scopes = getData[1]['SCOPES']
+    local sessionID = getData[1]['SESSIONID']
 
-OAuthLib.checkAuthStatus = function(reqKey)
-  local getData,err = getAuth(reqKey)
-  if err or not getData then return nil,nil,(err or "Invalid reqKey. Expired or not found."),nil end
-  local status = getData[1]['STATUS']
-  local service = getData[1]['SERVICE']
-  local scopes = getData[1]['SCOPES']
-  local UUID = getData[1]['UUID']
+    if not status or status == -1 or not service or not scopes or (not sessionID and status == 1) then
+      return -1,service,"Authentication Error",nil --If we failed or have invalid data
+    end
 
-  if not status or status == -1 or not service or not scopes or (not UUID and status == 1) then
-    return -1,service,"Authentication Error",nil --If we failed or have invalid data
+    if status == 1 then --Success, return UUID and status code
+      local res,err = pruneAuth(reqKey)
+      if err then cloud.log("Pruning error: "..err) end
+      return status,service,nil,sessionID
+    end
+
+    return status,service,nil,nil
   end
 
-  if status == 1 then --Success, return UUID and status code
-    local res,err = pruneAuth(reqKey)
-    if err then cloud.log("Pruning error: "..err) end
-    return 1,service,nil,UUID
-  end
 
-  return status,service,nil,nil
-end
-
-
-return OAuthLib
+  return OAuthLib
+  
