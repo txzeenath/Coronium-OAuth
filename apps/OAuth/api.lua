@@ -8,7 +8,7 @@ local OAuthLib = require("OAuth.OAuthLib")
 --Parameters
 -----------------------------------------------------------------------------------------
 OAuthLib.supported_services = {google=true,facebook=true,github=true,slack=false,foursquare=false,dropbox=false,twitter=false} -- must match with service module name
-OAuthLib.tablePrefix = "TESTD" -- Must not be nil. This is the prefix for all tables created and read by this API
+OAuthLib.tablePrefix = "TESTF" -- Must not be nil. This is the prefix for all tables created and read by this API
 OAuthLib.makeTables = true --Automatically make tables if they're missing. This can be turned off after the first execution except when adding new services.
 OAuthLib.conTab = require("tinywar-DBController.dbParams").conTab() -- This an instance of a MySql parameter table. You can just put a normal table here.
 OAuthLib.conTab['database'] = 'REG_TINYWAR'

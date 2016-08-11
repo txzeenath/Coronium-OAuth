@@ -5,6 +5,11 @@ local queueTableName = nil
 local keyTableName = nil
 local userTableName = nil
 
+local function sqlUUID()
+  local id = string.gsub(cloud.uuid(),"-","")
+  return id
+end
+
 local function debug(string)
   if debugging == true then cloud.log(string) end
 end
@@ -16,17 +21,17 @@ end
 
 local function createTables()
   local res,err = cloud.mysql.query(OAuthLib.conTab,
-    "CREATE TABLE IF NOT EXISTS `"..queueTableName.."` (`reqKey` varchar(36) NULL, `EXPIRES` int(16) NULL, `SERVICE` varchar(16) NULL,`SCOPES` varchar(512) NULL,`STATUS` tinyint(1) NULL, `SESSIONID` varchar(36) NULL, PRIMARY KEY (`reqKey`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
+    "CREATE TABLE IF NOT EXISTS `"..queueTableName.."` (`reqKey` varchar(32) NULL, `EXPIRES` int(16) NULL, `SERVICE` varchar(16) NULL,`SCOPES` varchar(512) NULL,`STATUS` tinyint(1) NULL, `SESSIONID` varchar(32) NULL, PRIMARY KEY (`reqKey`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
   end
   res,err = cloud.mysql.query(OAuthLib.conTab,
-    "CREATE TABLE IF NOT EXISTS `"..userTableName.."` (`UUID` varchar(36) NULL, `sessionID` varchar(36) NULL, `lastLogin` int(16) NULL, PRIMARY KEY (`UUID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
+    "CREATE TABLE IF NOT EXISTS `"..userTableName.."` (`UUID` varchar(32) NULL, `sessionID` varchar(32) NULL, `lastLogin` int(16) NULL, PRIMARY KEY (`UUID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
   end
   res,err = cloud.mysql.query(OAuthLib.conTab,
-    "CREATE TABLE IF NOT EXISTS `"..keyTableName.."` (`UUID` varchar(36) NULL, `SERVICE` varchar(16) NULL, `OAUTH_ID` varchar(32) NULL,`REFRESH` varchar(64) NULL,`ACTIVE` varchar(64) NULL, `EXPIRES` int(16) NULL, `SCOPES` varchar(512) NULL, `CREATED` int(16) NULL, PRIMARY KEY (`UUID`,`OAUTH_ID`), UNIQUE (`SERVICE`,`OAUTH_ID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
+    "CREATE TABLE IF NOT EXISTS `"..keyTableName.."` (`UUID` varchar(32) NULL, `SERVICE` varchar(16) NULL, `OAUTH_ID` varchar(32) NULL,`REFRESH` varchar(256) NULL,`ACTIVE` varchar(256) NULL, `EXPIRES` int(16) NULL, `SCOPES` varchar(512) NULL, `CREATED` int(16) NULL, PRIMARY KEY (`UUID`,`OAUTH_ID`), UNIQUE (`SERVICE`,`OAUTH_ID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
   end
@@ -230,7 +235,7 @@ OAuthLib.getKeys = function(UUID,OAuthID,limit,column)
     local auth = proc.auth_url
     local redirect = proc.redirect_url
     local clientID = proc.client_id
-    local reqKey = cloud.uuid() --Generate a unique key for this request
+    local reqKey = sqlUUID() --Generate a unique key for this request
     local scopes = ""
     scopes = proc.defaultScopes --Grab default scope
     if inScopes then
@@ -300,7 +305,7 @@ OAuthLib.getKeys = function(UUID,OAuthID,limit,column)
     local UUID = nil
     
     if not sessionID then -- No sessionID was found in request.
-      sessionID = cloud.uuid() --Generate a session ID for this login
+      sessionID = sqlUUID() --Generate a session ID for this login
       local res,err = OAuthLib.getKeys(nil,tID,1,"UUID") --Check for an existing OAuth ID
       if err then cloud.log(err); setAuthStatus(reqKey,-1); return nil,"Error retrieving key table." end
       if res then UUID = res[1]['UUID'] end
@@ -311,7 +316,7 @@ OAuthLib.getKeys = function(UUID,OAuthID,limit,column)
       if not UUID then setAuthStatus(reqKey,-1); return nil,"No UUID found" end
     end
 
-    if not UUID then UUID = cloud.uuid() end --No UUID found in keys or session. Create a new one
+    if not UUID then UUID = sqlUUID() end --No UUID found in keys or session. Create a new one
 
     res,err = setAuthStatus(reqKey,0,sessionID) --Write session ID here so user can grab it
     if err then setAuthStatus(reqKey,-1); return nil,err end
