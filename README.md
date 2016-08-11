@@ -101,7 +101,7 @@ error (error) - string
 ```lua
 function api.post.checkAccess(input)
 ```
-For checking access of user against their sessionID
+For checking access of user against their sessionID (secures the profile to a single login point, even if the UUID is 'leaked')
 #####Inputs:  
 uuid - (user's UUID) - string  
 sessionID - (user's sessionID) - string  
