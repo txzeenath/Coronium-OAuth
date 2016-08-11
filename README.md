@@ -111,7 +111,7 @@ sessionID - (user's sessionID) - string
 #####Returns:  
 status (-1 fail,1 success) - int  
 service (always "Unknown") - string  
-error = (error) - string
+error = (error) - string  
 uuid = (unique ID) - string
 
 ---
