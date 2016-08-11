@@ -154,7 +154,7 @@ OAuth.authenticate = function(cloud, service, scopes)
         if onSimulator then
           webView = nil
           system.openURL( evt.response.url )
-          waitForAuth(reqKeyA,cloud,service,scopes) --Wait for server response
+          timer.performWithDelay(authDelay, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Wait for server response
           return
         end
         local function webListener(event)
@@ -167,7 +167,7 @@ OAuth.authenticate = function(cloud, service, scopes)
                 if transit then transition.cancel(transit);transit=nil end
                 webView:removeSelf() --Close and wait for server response
                 webView = nil
-                waitForAuth(reqKeyA,cloud,service,scopes) --Start waiting
+                timer.performWithDelay(authDelay, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Start waiting
                 return
               else
                 if transit then transition.cancel(transit);transit=nil end
