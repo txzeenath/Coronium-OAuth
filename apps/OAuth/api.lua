@@ -140,10 +140,21 @@ function api.post.getUUID(input)
   if not sessionID then return {status=-1,service=service,error="Access denied"} end
   local res,err = OAuthLib.getUser(nil,sessionID)
   if err then cloud.log(err); return {status=-1,service="Unknown",error="Access denied for session"} end
+  debug("User requesting UUID")
   local UUID = res[1]['UUID']
   if not UUID then return {status=-1,service="Unknown",error="No user found"} end
-  
+
   return {status=1,service="Unknown",error=nil,uuid=UUID}
+end
+
+function api.post.logout( input )
+  local sessionID = input.sessionID
+  if not sessionID then return {status=-1,service=service,error="Access denied"} end
+  local res,err = OAuthLib.logoutUser(sessionID)
+  debug("Logging user out")
+  if err then cloud.log(err) return {status=-1,service="Unknown",error="Failed to log out user"} end
+
+  return {status=1,service="Unknown",error=nil}
 end
 
 --Returns true/nil,service,error

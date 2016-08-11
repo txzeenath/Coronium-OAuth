@@ -169,6 +169,24 @@ local function writeUser(UUID,sessionID)
   return res,err
 end
 
+--Invalidates sessionID for user to forcibly lock their account until next login
+OAuthLib.logoutUser = function(UUID,sessionID)
+  if not UUID and not sessionID then
+    cloud.log("Missing arguments to logout function!")
+    return nil,"Missing arguments"
+  end
+  if not UUID then UUID = "" end
+  if not sessionID then sessionID = "" end
+  UUID = cloud.mysql.string(UUID)
+  sessionID = cloud.mysql.string(sessionID)
+  local query = "UPDATE `"..userTableName.."` SET `SESSIONID`="..sqlUUID().." WHERE `UUID`="..UUID.." OR `SESSIONID`="..sessionID.." LIMIT 1;"
+  local res,err = cloud.mysql.query(OAuthLib.conTab, query)
+  
+  if err then return nil,err end
+  
+  return res,err
+end
+
 --Can check for UUID or OAuthID to grab keys
 OAuthLib.getKeys = function(UUID,OAuthID,limit,column)
   if not UUID and not OAuthID then return nil,"Missing params to get keys" end
