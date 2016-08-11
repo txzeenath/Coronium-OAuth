@@ -26,7 +26,7 @@ local function createTables()
     return nil,err
   end
   res,err = cloud.mysql.query(OAuthLib.conTab,
-    "CREATE TABLE IF NOT EXISTS `"..keyTableName.."` (`UUID` varchar(36) NULL, `SERVICE` varchar(16) NULL, `OAUTH_ID` varchar(32) NULL,`REFRESH` varchar(64) NULL,`ACTIVE` varchar(64) NULL, `EXPIRES` int(16) NULL, `SCOPES` varchar(512) NULL, `CREATED` int(16) NULL, PRIMARY KEY (`UUID`,`OAUTH_ID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
+    "CREATE TABLE IF NOT EXISTS `"..keyTableName.."` (`UUID` varchar(36) NULL, `SERVICE` varchar(16) NULL, `OAUTH_ID` varchar(32) NULL,`REFRESH` varchar(64) NULL,`ACTIVE` varchar(64) NULL, `EXPIRES` int(16) NULL, `SCOPES` varchar(512) NULL, `CREATED` int(16) NULL, PRIMARY KEY (`UUID`,`OAUTH_ID`), UNIQUE (`SERVICE`,`OAUTH_ID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
   end
@@ -131,7 +131,7 @@ local function writeKeys(UUID,OID,service,refresh,active,expires,scopes)
   local query = nil
   local tables = "(`UUID`,`SERVICE`,`OAUTH_ID`,`REFRESH`,`ACTIVE`,`EXPIRES`,`SCOPES`,`CREATED`)"
   local values = "VALUES("..UUID..","..service..","..OID..","..refresh..","..active..","..expires..","..scopes..","..cloud.time.epoch()..")"
-  local onDup = "`ACTIVE`=VALUES(`ACTIVE`),`REFRESH`=VALUES(`REFRESH`),`SCOPES`=VALUES(`SCOPES`),`EXPIRES`=VALUES(`EXPIRES`)"
+  local onDup = "`UUID`=VALUES(`UUID`),`ACTIVE`=VALUES(`ACTIVE`),`REFRESH`=VALUES(`REFRESH`),`SCOPES`=VALUES(`SCOPES`),`EXPIRES`=VALUES(`EXPIRES`)"
 
   query = "INSERT INTO `"..keyTableName.."` "..tables.." "..values.." ON DUPLICATE KEY UPDATE "..onDup..";"
   local res,err = cloud.mysql.query(OAuthLib.conTab, query)
@@ -301,7 +301,7 @@ OAuthLib.getKeys = function(UUID,OAuthID,limit,column)
     
     if not sessionID then -- No sessionID was found in request.
       sessionID = cloud.uuid() --Generate a session ID for this login
-      local res,err = OAuthLib.getKeys(nil,tID,1,UUID) --Check for an existing OAuth ID
+      local res,err = OAuthLib.getKeys(nil,tID,1,"UUID") --Check for an existing OAuth ID
       if err then cloud.log(err); setAuthStatus(reqKey,-1); return nil,"Error retrieving key table." end
       if res then UUID = res[1]['UUID'] end
     else --Session was provided, find user

@@ -98,7 +98,7 @@ function api.post.getList( input )
   end
   debug("Getting user's authorization list")
 
-  res,err = OAuthLib.getKeys(UUID,nil,10)
+  res,err = OAuthLib.getKeys(UUID,nil,10,"SERVICE,SCOPES")
   if err then return {status=-1,service="Unknown",error="Failed to get keys"} end
   local service = {}
   for i=1,#res do
