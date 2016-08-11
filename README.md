@@ -25,6 +25,7 @@ Just some rough notes:
 ######system.openURL( evt.response.url ) 
 
 ###Poll for login status (I use a 2s timer for this)
+######Returns 0 for waiting, -1 for error/failed, and 1 for success
 ######local req = cloud:request('/OAuth/waitForAuth',{reqKey=reqKey},listener) --and wait
 
 ###On success, grab your sessionID and UUID from the reply
