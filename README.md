@@ -14,7 +14,7 @@ Just some rough notes:
 
 ###Request a login URL:
 #####Service is the service's name in all lowercase
-#####UUID and sessionID are for users who are already logged in.
+#####UUID and sessionID are for users who are already logged in (account linking). They can be nil for a fresh login.
 #####For scopes see your selected service for valid scopes. If this is nil, defaults are used
 ######local req = cloud:request('/OAuth/requestAccessUrl',{service=service,scopes=scopes,uuid=OAuth.UUID,sessionID=OAuth.sessionID},listener)
 
