@@ -8,27 +8,11 @@ local OAuthLib = require("OAuth.OAuthLib")
 --Parameters
 -----------------------------------------------------------------------------------------
 OAuthLib.supported_services = {google=true,facebook=true,github=true,slack=false,foursquare=false,dropbox=false,twitter=false} -- must match with service module name
-<<<<<<< HEAD
 OAuthLib.tablePrefix = "TESTD" -- Must not be nil. This is the prefix for all tables created and read by this API
 OAuthLib.makeTables = true --Automatically make tables if they're missing. This can be turned off after the first execution except when adding new services.
 OAuthLib.conTab = require("tinywar-DBController.dbParams").conTab() -- This an instance of a MySql parameter table. You can just put a normal table here.
 OAuthLib.conTab['database'] = 'REG_TINYWAR'
 OAuthLib.init()
-=======
-OAuthLib.tablePrefix = "TESTOAUTH" -- Must not be nil. This is the prefix for all tables created and read by this API
-OAuthLib.makeTables = true --Automatically make tables if they're missing. This can be turned off after the first execution except when adding new services.
-OAuthLib.authTableName = OAuthLib.tablePrefix.."_QUEUE"
-OAuthLib.conTab = {
-    database = nil,
-    user="cloud",
-    password="cloudadmin",
-    host=localhost,
-    port=3306
-  }
-  
-  OAuthLib.conTab['database'] = 'REG_ALPHA'
-
->>>>>>> origin/master
 --===========================================================================--
 --== Routing Methods
 --===========================================================================--
@@ -46,22 +30,9 @@ function api.post.requestAccessUrl( input )
   local service = input.service
   if not service then return {error="Service must be specified"} end
   if not OAuthLib.supported_services[service] then return {status=-1,service=service,error="Unsupported service: " .. service} end
-<<<<<<< HEAD
   local URL,err = nil,nil,nil
 
   URL,err = OAuthLib.makeAccessUrl(service,input.sessionID,input.scopes)
-=======
-  local sessionID = input.sessionID
-  local UUID = input.uuid
-  local URL,res,err = nil,nil,nil
-  if UUID then --Trying to link a service
-    res,err = OAuthLib.checkAccess(UUID,sessionID)
-    if err then cloud.log(err)
-      return {status=-1,service=service,error="Access denied for session"} 
-    end
-  end
-  URL,err = OAuthLib.makeAccessUrl(service,UUID,input.scopes)
->>>>>>> origin/master
   if err then 
     cloud.log(err)
     return {status=-1,service=service,error="Failed to generate URL"}
@@ -118,7 +89,6 @@ end
 
 function api.post.getList( input )
   local sessionID = input.sessionID
-<<<<<<< HEAD
   if not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
   local res,err = OAuthLib.getUser(nil,sessionID)
   local UUID = res[1]['UUID']
@@ -127,14 +97,6 @@ function api.post.getList( input )
     return {status=-1,service="Unknown",error="Access denied for session"} 
   end
   debug("Getting user's authorization list")
-=======
-  if not UUID or not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
-  local res,err = OAuthLib.checkAccess(UUID,sessionID)
-    if err then 
-      cloud.log(err)
-      return {status=-1,service="Unknown",error="Access denied"} 
-    end
->>>>>>> origin/master
 
   res,err = OAuthLib.getKeys(UUID,nil,10)
   if err then return {status=-1,service="Unknown",error="Failed to get keys"} end

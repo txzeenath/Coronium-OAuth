@@ -1,5 +1,6 @@
 local OAuth = {}
 local onSimulator = system.getInfo( "environment" ) == "simulator"
+local RGEasyTextField	= require("RGEasyTextField")
 
 OAuth.sessionID = nil
 OAuth.authenticate = nil
@@ -154,11 +155,7 @@ OAuth.authenticate = function(cloud, service, scopes)
         if onSimulator then
           webView = nil
           system.openURL( evt.response.url )
-<<<<<<< HEAD
-          timer.performWithDelay(2000, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Wait for server response
-=======
           timer.performWithDelay(authDelay, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Wait for server response
->>>>>>> origin/master
           return
         end
         local function webListener(event)
@@ -171,11 +168,7 @@ OAuth.authenticate = function(cloud, service, scopes)
                 if transit then transition.cancel(transit);transit=nil end
                 webView:removeSelf() --Close and wait for server response
                 webView = nil
-<<<<<<< HEAD
-                timer.performWithDelay(2000, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Start waiting
-=======
                 timer.performWithDelay(authDelay, function() waitForAuth(reqKeyA,cloud,service,scopes) end) --Start waiting
->>>>>>> origin/master
                 return
               else
                 if transit then transition.cancel(transit);transit=nil end
