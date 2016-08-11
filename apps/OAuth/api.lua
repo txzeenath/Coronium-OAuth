@@ -113,7 +113,7 @@ function api.post.checkAccess(input)
   local UUID = input.uuid
   local sessionID = input.sessionID
   if not UUID or not sessionID then return {status=-1,service="Unknown",error="Access denied"} end
-  local res,err = (OAuthLib.checkAccess(UUID,sessionID)
+  local res,err = OAuthLib.checkAccess(UUID,sessionID)
     if err then 
       cloud.log(err)
       return {status=-1,service="Unknown",error="Access denied"} 
