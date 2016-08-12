@@ -18,7 +18,7 @@ local cloud = Coronium:new({ --Set our example project's cloud
 
 local function checkUser()
    --Prompt user for login, OAuth.checkUser(function on true, function on false)
-  OAuth.checkUser(function() print("Returning user") end,function() OAuth.showLoginPanel(nil,nil,"Please Select a Service To Log In") end)
+  OAuth.checkUser(function() print("User is logged in.") end,function() OAuth.showLoginPanel(nil,nil,"Please Select a Service To Log In") end)
 end
 
 function scene:show( event )
