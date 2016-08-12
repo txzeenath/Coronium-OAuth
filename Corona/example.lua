@@ -1,6 +1,5 @@
 local composer = require( "composer" )
 local scene = composer.newScene()
-local example = {}
 local Coronium = require('coronium.cloud')
 local OAuth = require("oauthcoronium.lib")
 OAuth.cloud = Coronium:new({--Set the OAuth cloud. This is used by the OAuth API
@@ -30,7 +29,7 @@ function scene:show( event )
   end
 end
 
-example.getProfile = function(service)
+local function getProfile(service)
   if service ~= "google" then
     print("Only 'google' is a valid service for this function")
     return
@@ -57,7 +56,7 @@ local function listener(evt)
   if evt.action == "login" then
     if evt.status == 1 then
       print("User logged in using: "..(evt.service or "Unknown"))
-      example.getProfile(evt.service)
+      getProfile(evt.service)
     elseif evt.status == 0 then
       print("Waiting")
     elseif evt.status == -1 then
