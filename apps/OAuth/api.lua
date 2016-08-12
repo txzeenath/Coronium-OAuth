@@ -7,12 +7,6 @@ local OAuthLib = require("OAuth.OAuthLib")
 -----------------------------------------------------------------------------------------
 --Parameters
 -----------------------------------------------------------------------------------------
-OAuthLib.supported_services = {google=true,facebook=true,github=true,slack=false,foursquare=false,dropbox=false,twitter=false} -- must match with service module name
-OAuthLib.tablePrefix = "TESTF" -- Must not be nil. This is the prefix for all tables created and read by this API
-OAuthLib.makeTables = true --Automatically make tables if they're missing. This can be turned off after the first execution except when adding new services.
-OAuthLib.conTab = require("tinywar-DBController.dbParams").conTab() -- This an instance of a MySql parameter table. You can just put a normal table here.
-OAuthLib.conTab['database'] = 'REG_TINYWAR'
-OAuthLib.init()
 --===========================================================================--
 --== Routing Methods
 --===========================================================================--
@@ -30,15 +24,14 @@ function api.post.requestAccessUrl( input )
   local service = input.service
   if not service then return {error="Service must be specified"} end
   if not OAuthLib.supported_services[service] then return {status=-1,service=service,error="Unsupported service: " .. service} end
-  local URL,err = nil,nil,nil
 
-  URL,err = OAuthLib.makeAccessUrl(service,input.sessionID,input.scopes)
+  local URL,reqKey,err = OAuthLib.makeAccessUrl(service,input.sessionID,input.scopes)
   if err then 
     cloud.log(err)
     return {status=-1,service=service,error="Failed to generate URL"}
   end
 
-  return {status=0,service=service,url=URL}
+  return {status=0,service=service,url=URL,reqKey = reqKey}
 end
 
 --We need to make sure to update status code here,
@@ -60,7 +53,7 @@ function api.get.redirect(input)
     return {status=-1,service="Unknown",error="Bad request"}
   end
 
-  return "Welcome! Authentication Complete. You can now close this page."
+  return '<b>Welcome! Authentication Complete. You can now close this page.</b>',cloud.HTML
 end
 
 -- -1 = failed, try again
@@ -86,33 +79,6 @@ end
 ---------------------------------------------------------------------------------------------------
 --- User management/Protected functions - These require a matching session ID
 --------------------------------------------------------------------------------------------------
-function api.post.exampleGetProfile( input )
-  --[[These params are needed to get our token]]--
-  local service = input.service
-  local sessionID = input.sessionID
-  if not service or not sessionID then return {error = "Missing parameters"} end
-  --[[----------------------------------------]]--
-  
-  local token = OAuthLib.userToken(sessionID,service) --Get token
-  if not token then return {status=-1,service=service,error="Access denied"} end
-  
-  --[[------Build network request-------------]]--
-  local servNet = cloud.network.new("www.googleapis.com",443)
-  servNet:method(cloud.GET)
-  servNet:ssl_verify(true)
-  servNet:path("/oauth2/v2/userinfo")
-  servNet:keep_alive(5000,10)
-  servNet:headers({
-      ['Content-Type'] = 'application/json',
-      ['Authorization'] = 'Bearer '..token, --<--- Insert user's token
-      ['Accept'] = 'application/json'
-    })
-
-  local res,err = servNet:result() --<-- Get result
-  if err or not res then return {error = "Could not get profile"} end --<-- Catch errors
-  res = cloud.decode.json(res)--Force to table.
-  return res --<--- Respond
-end
 
 function api.post.getList( input )
   local sessionID = input.sessionID
@@ -160,6 +126,18 @@ function api.post.deleteProfile( input )
 
   return {status=1,service=removed,error=nil}
 end
+
+--Checks if sessionID is valid
+--We don't want to return an error here unless necessary, since an error
+--can also mean that we didn't find the user.
+function api.post.checkUser(input)
+  local sessionID = input.sessionID
+  if not sessionID then return {status=-1,service="Unknown",error=nil} end
+  local res,err = OAuthLib.getUser(nil,sessionID)
+  if err then return {status=-1,service="Unknown",error=nil} end
+  
+  return {status=1,service="Unknown",error=nil}
+end  
 
 --Returns a user's unique ID
 function api.post.getUUID(input)

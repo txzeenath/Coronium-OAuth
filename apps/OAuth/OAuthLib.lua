@@ -1,10 +1,22 @@
 local OAuthLib = {}
 
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 local debugging = true
-local queueTableName = nil
-local keyTableName = nil
-local userTableName = nil
+OAuthLib.supported_services = {google=true,facebook=true,github=true,slack=false,foursquare=false,dropbox=false,twitter=false} -- must match with service module name
+local tablePrefix = "TESTF" -- Must not be nil. This is the prefix for all tables created and read by this API
+local makeTables = true --Automatically make tables if they're missing. This can be turned off after the first execution except when adding new services.
+local conTab = require("tinywar-DBController.dbParams").conTab() -- This an instance of a MySql parameter table. You can just put a normal table here.
+conTab['database'] = 'REG_TINYWAR'
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+
+
+
+local queueTableName = tablePrefix.."_".."QUEUE"
+local keyTableName = tablePrefix.."_".."KEYS"
+local userTableName = tablePrefix.."_".."USERS"
 local function sqlUUID()
   local id = string.gsub(cloud.uuid(),"-","")
   return id
@@ -13,24 +25,20 @@ end
 local function debug(string)
   if debugging == true then cloud.log(string) end
 end
-OAuthLib.init = function()
-  queueTableName = OAuthLib.tablePrefix.."_".."QUEUE"
-  keyTableName = OAuthLib.tablePrefix.."_".."KEYS"
-  userTableName = OAuthLib.tablePrefix.."_".."USERS"
-end
+
 
 local function createTables()
-  local res,err = cloud.mysql.query(OAuthLib.conTab,
+  local res,err = cloud.mysql.query(conTab,
     "CREATE TABLE IF NOT EXISTS `"..queueTableName.."` (`reqKey` varchar(32) NULL, `EXPIRES` int(16) NULL, `SERVICE` varchar(16) NULL,`SCOPES` varchar(512) NULL,`STATUS` tinyint(1) NULL, `SESSIONID` varchar(32) NULL, PRIMARY KEY (`reqKey`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
   end
-  res,err = cloud.mysql.query(OAuthLib.conTab,
+  res,err = cloud.mysql.query(conTab,
     "CREATE TABLE IF NOT EXISTS `"..userTableName.."` (`UUID` varchar(32) NULL, `sessionID` varchar(32) NULL, `lastLogin` int(16) NULL, PRIMARY KEY (`UUID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
   end
-  res,err = cloud.mysql.query(OAuthLib.conTab,
+  res,err = cloud.mysql.query(conTab,
     "CREATE TABLE IF NOT EXISTS `"..keyTableName.."` (`UUID` varchar(32) NULL, `SERVICE` varchar(16) NULL, `OAUTH_ID` varchar(32) NULL,`REFRESH` varchar(256) NULL,`ACTIVE` varchar(256) NULL, `EXPIRES` int(16) NULL, `SCOPES` varchar(512) NULL, `CREATED` int(16) NULL, PRIMARY KEY (`UUID`,`OAUTH_ID`), UNIQUE (`SERVICE`,`OAUTH_ID`)) ENGINE='InnoDB' COLLATE 'utf8_unicode_ci';")
   if err then
     return nil,err
@@ -41,7 +49,7 @@ end
 --reqKey is optional and will forcibly remove the entry from the table
 local function pruneAuth(reqKey)
   if not reqKey then reqKey = "" end --Make an empty string so we don't get a concat error
-  local db = cloud.mysql.databag(OAuthLib.conTab)
+  local db = cloud.mysql.databag(conTab)
   local result,err = db:delete({
       tableName=queueTableName,
       where = "`EXPIRES` < "..cloud.time.epoch().." OR `reqKey`="..cloud.mysql.string(reqKey)
@@ -51,7 +59,7 @@ end
 
 OAuthLib.userToken = function(sessionID,service)
   local res,err = OAuthLib.getUser(nil,sessionID)
-  if err then cloud.log(err); return nil end
+  if err then return nil end
   local UUID = res[1]['UUID']
   if not UUID then return nil end
 
@@ -59,7 +67,7 @@ OAuthLib.userToken = function(sessionID,service)
   if err then cloud.log(err); return nil end
   if not res then return nil end
   local access_token = res[1]['ACTIVE']
-  
+
   if not access_token then return nil end
   return access_token
 end
@@ -67,7 +75,7 @@ end
 --Remove an authorization key from table for user
 OAuthLib.removeAuth = function(service,UUID)
   if not UUID or not service then return nil,"Can't remove auth: Parameters missing" end
-  local db = cloud.mysql.databag(OAuthLib.conTab)
+  local db = cloud.mysql.databag(conTab)
   local result,err = db:delete({
       tableName=keyTableName,
       where = '`UUID` = '..cloud.mysql.string(UUID)..' AND `SERVICE`='..cloud.mysql.string(service),
@@ -89,7 +97,7 @@ local function setAuthStatus(reqKey,statusCode,sessionID)
   local query = nil
   if not sessionID then sessionID = 'NULL' else sessionID = cloud.mysql.string(sessionID) end
   query = "UPDATE "..queueTableName.." SET `STATUS`="..statusCode..",`SESSIONID`=COALESCE("..sessionID..",`SESSIONID`) where `reqKey`="..cloud.mysql.string(reqKey).." LIMIT 1;"
-  local result,err = cloud.mysql.query(OAuthLib.conTab,query)
+  local result,err = cloud.mysql.query(conTab,query)
 
   if not result or not next(result) or err then return nil,(err or "Unknown") end
   return result,err
@@ -97,7 +105,7 @@ end
 
 --Get entry from auth queue
 local function getAuth(reqKey)
-  local db = cloud.mysql.databag(OAuthLib.conTab)
+  local db = cloud.mysql.databag(conTab)
   local res,err = db:select({
       tableName=queueTableName,
       where = "`reqKey`="..cloud.mysql.string(reqKey),
@@ -120,7 +128,7 @@ local function writeAuth(reqKey,service,scopes,status,sessionID)
   local columns = nil
   if sessionID then columns = {'reqKey','EXPIRES','SERVICE','SCOPES','STATUS','SESSIONID'}
   else columns = {'reqKey','EXPIRES','SERVICE','SCOPES','STATUS'} end
-  local db = cloud.mysql.databag(OAuthLib.conTab)
+  local db = cloud.mysql.databag(conTab)
   local result,err = db:insert({
       tableName=queueTableName,
       columns=columns,
@@ -153,7 +161,7 @@ local function writeKeys(UUID,OID,service,refresh,active,expires,scopes)
   local onDup = "`UUID`=VALUES(`UUID`),`ACTIVE`=VALUES(`ACTIVE`),`REFRESH`=VALUES(`REFRESH`),`SCOPES`=VALUES(`SCOPES`),`EXPIRES`=VALUES(`EXPIRES`)"
 
   query = "INSERT INTO `"..keyTableName.."` "..tables.." "..values.." ON DUPLICATE KEY UPDATE "..onDup..";"
-  local res,err = cloud.mysql.query(OAuthLib.conTab, query)
+  local res,err = cloud.mysql.query(conTab, query)
 
 
   if not res or not next(res) then return nil,(err or "Unknown") end
@@ -176,7 +184,7 @@ local function writeUser(UUID,sessionID)
 
   query = "INSERT INTO `"..userTableName.."` "..tables.." "..values.." ON DUPLICATE KEY UPDATE "..onDup..";"
 
-  local res,err = cloud.mysql.query(OAuthLib.conTab, query)
+  local res,err = cloud.mysql.query(conTab, query)
 
 
   if not res or not next(res) then return nil,(err or "Unknown") end
@@ -184,7 +192,6 @@ local function writeUser(UUID,sessionID)
 end
 
 --Invalidates sessionID for user to forcibly lock their account until next login
---Accepts sessionID or UUID
 OAuthLib.logoutUser = function(UUID,sessionID)
   if not UUID and not sessionID then
     cloud.log("Missing arguments to logout function!")
@@ -195,7 +202,7 @@ OAuthLib.logoutUser = function(UUID,sessionID)
   UUID = cloud.mysql.string(UUID)
   sessionID = cloud.mysql.string(sessionID)
   local query = "UPDATE `"..userTableName.."` SET `SESSIONID`="..sqlUUID().." WHERE `UUID`="..UUID.." OR `SESSIONID`="..sessionID.." LIMIT 1;"
-  local res,err = cloud.mysql.query(OAuthLib.conTab, query)
+  local res,err = cloud.mysql.query(conTab, query)
 
   if err then return nil,err end
 
@@ -219,7 +226,7 @@ OAuthLib.getKeys = function(UUID,OAuthID,service,limit,column)
   else
     query ="SELECT "..column.." FROM "..keyTableName.." WHERE `UUID`="..UUID.." OR `OAUTH_ID`="..OAuthID.." LIMIT "..limit..";"
   end
-  local res,err = cloud.mysql.query(OAuthLib.conTab,query)
+  local res,err = cloud.mysql.query(conTab,query)
 
   if err then return nil,err end
 
@@ -232,7 +239,7 @@ OAuthLib.getKeys = function(UUID,OAuthID,service,limit,column)
   else
     res = nil --But we don't pass empty tables back
   end
-  
+
   return res,nil
 end
 
@@ -244,13 +251,16 @@ OAuthLib.getUser = function(UUID,sessionID)
   if not sessionID then sessionID = "" end
   UUID = cloud.mysql.string(UUID)
   sessionID = cloud.mysql.string(sessionID)
-  local db = cloud.mysql.databag(OAuthLib.conTab)
+  local db = cloud.mysql.databag(conTab)
   local res,err = db:select({
       tableName=userTableName,
       where = "`UUID`="..UUID.." OR `SESSIONID`="..sessionID,
       limit = 1
     })
-  if err then return nil,err end
+  if err then 
+    cloud.log(err)
+    return nil,"No user found"
+  end
 
   if next(res) then
     for i,v in pairs(res[1]) do
@@ -268,7 +278,7 @@ end
 
 OAuthLib.makeAccessUrl = function(service,sessionID,inScopes)
   local res,err = nil,nil
-  if OAuthLib.makeTables then 
+  if makeTables then 
     res,err = createTables() --Create all tables
     if err then cloud.log(err) end
   end
@@ -287,9 +297,9 @@ OAuthLib.makeAccessUrl = function(service,sessionID,inScopes)
   --Build auth URL
   local URL = cloud.sf("%s?redirect_uri=%s&response_type=%s&client_id=%s&scope=%s&approval_prompt=%s&access_type=%s&state=%s", auth, redirect, "code", clientID, scopes, "auto", "offline",reqKey)
   res,err = writeAuth(reqKey,service,scopes,0,sessionID)
-  if err then return nil,err end
+  if err then return nil,nil,err end
 
-  return URL,nil
+  return URL,reqKey,nil
 end
 
 OAuthLib.processRedirect = function(reqKey,code)
