@@ -12,6 +12,7 @@ local webView = nil
 
 local authDelay = 3*1000 --Delay between auth requests and status checks. In ms
 local authTimeout = 20*1000 --Time before attempt times out, this includes all steps of authentication. In ms
+local timeout = nil
 
 OAuth.sendEvent = function(params)
   local outParams = {}
@@ -22,7 +23,6 @@ OAuth.sendEvent = function(params)
   outParams['action'] = params.action or "Unknown"
   Runtime:dispatchEvent(outParams)
 end
-
 
 
 --Draws a service icon and returns the display group
@@ -64,7 +64,7 @@ OAuth.drawServiceIcon = function(service,listener,disableEffects,label)
         end
       end
     end
-    local req = OAuth.cloud:download("/OAuth/images/"..service..".png",icon_path,listener,system.DocumentsDirectory)
+    local req = OAuth.cloud:download("OAuth/images/"..service..".png",icon_path,listener,system.DocumentsDirectory)
   else
     iconI = display.newImage(iconG,icon_path,system.DocumentsDirectory,0,0)
     iconI.width,iconI.height = 100,100
@@ -183,13 +183,14 @@ local function doWaitingScreen(disable,service)
     waitingFrame:removeSelf()
     waitingFrame = nil
     waitingIcon = nil
+    if timeout then timer.cancel(timeout);timeout=nil end
   else
     waitingFrame:toFront()
     waitingIcon:toFront()
     dS.animatePulseA(waitingIcon,1000)
+    timeout = timer.performWithDelay(authTimeout,function() OAuth.sendEvent({action="login",status=-2,service=service,error="Timed out"}); doWaitingScreen(true,service) end)
   end
   if webView then webView:toFront() end
-  timer.performWithDelay(authTimeout,function() OAuth.sendEvent({action="login",status=-2,service=service,error="Timed out"}); doWaitingScreen(true,service) end)
 end
 
 
