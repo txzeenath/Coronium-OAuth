@@ -80,9 +80,7 @@ OAuth.getList = function(cloud)
   local function listener(evt)
     if evt.phase == "ended" then
       for i,v in pairs(evt.response.service) do
-        for x,y in pairs(v) do
-          print(x,y)
-        end
+        print(v[1].." - "..v[2])
       end
     end
   end
@@ -101,6 +99,24 @@ OAuth.removeLink = function(cloud, service)
 
   local req = cloud:request('/OAuth/removeLink',{sessionID=OAuth.sessionID,service=service},listener)
 end
+
+OAuth.exampleGetProfile = function(cloud, service)
+  local function listener(evt)
+    if evt.phase == "ended" then
+      if evt.response.error and evt.response.status == -1 and evt.response.service then
+        OAuth.authenticate(cloud,evt.response.service) --Prompt for access
+      else
+        --print(evt.response)
+        for i,v in pairs(evt.response) do
+          print(i,v)
+        end
+      end
+    end
+  end
+
+  local req = cloud:request('/OAuth/exampleGetProfile',{sessionID=OAuth.sessionID,service="google"},listener)
+end
+
 --   Start loop and wait for server to verify.
 --   Sets OAuth.UUID on success
 local function waitForAuth(reqKey,cloud,service,scopes)

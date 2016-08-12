@@ -86,6 +86,33 @@ end
 ---------------------------------------------------------------------------------------------------
 --- User management/Protected functions - These require a matching session ID
 --------------------------------------------------------------------------------------------------
+function api.post.exampleGetProfile( input )
+  --[[These params are needed to get our token]]--
+  local service = input.service
+  local sessionID = input.sessionID
+  if not service or not sessionID then return {error = "Missing parameters"} end
+  --[[----------------------------------------]]--
+  
+  local token = OAuthLib.userToken(sessionID,service) --Get token
+  if not token then return {status=-1,service=service,error="Access denied"} end
+  
+  --[[------Build network request-------------]]--
+  local servNet = cloud.network.new("www.googleapis.com",443)
+  servNet:method(cloud.GET)
+  servNet:ssl_verify(true)
+  servNet:path("/oauth2/v2/userinfo")
+  servNet:keep_alive(5000,10)
+  servNet:headers({
+      ['Content-Type'] = 'application/json',
+      ['Authorization'] = 'Bearer '..token, --<--- Insert user's token
+      ['Accept'] = 'application/json'
+    })
+
+  local res,err = servNet:result() --<-- Get result
+  if err or not res then return {error = "Could not get profile"} end --<-- Catch errors
+  res = cloud.decode.json(res)--Force to table.
+  return res --<--- Respond
+end
 
 function api.post.getList( input )
   local sessionID = input.sessionID
@@ -98,7 +125,7 @@ function api.post.getList( input )
   end
   debug("Getting user's authorization list")
 
-  res,err = OAuthLib.getKeys(UUID,nil,10,"SERVICE,SCOPES")
+  res,err = OAuthLib.getKeys(UUID,nil,nil,10,"SERVICE,SCOPES")
   if err then return {status=-1,service="Unknown",error="Failed to get keys"} end
   local service = {}
   for i=1,#res do
