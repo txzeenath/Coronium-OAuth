@@ -184,6 +184,7 @@ local function writeUser(UUID,sessionID)
 end
 
 --Invalidates sessionID for user to forcibly lock their account until next login
+--Accepts sessionID or UUID
 OAuthLib.logoutUser = function(UUID,sessionID)
   if not UUID and not sessionID then
     cloud.log("Missing arguments to logout function!")
