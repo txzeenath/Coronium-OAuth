@@ -1,10 +1,11 @@
 local composer = require( "composer" )
 local scene = composer.newScene()
+local example = {}
 local Coronium = require('coronium.cloud')
 local OAuth = require("oauthcoronium.lib")
-OAuth.cloud = Coronium:new({--Set the OAuth cloud. This is used by the OAuth API
+OAuth.cloud = Coronium:new({ --Set the OAuth cloud. This is used by the OAuth API.
     host = 'nyc1.tinywar.net',
-    app_key = '0',
+    app_key = '1234',
     https = true
   })
 
@@ -17,7 +18,7 @@ local cloud = Coronium:new({ --Set our example project's cloud
 
 local function checkUser()
    --Prompt user for login, OAuth.checkUser(function on true, function on false)
-  OAuth.checkUser(function() print("Returning user") end,function() OAuth.showLoginPanel(nil,nil,"Please Select a Service To Log In") end)
+  OAuth.checkUser(function() print("User is logged in.") end,function() OAuth.showLoginPanel(nil,nil,"Please Select a Service To Log In") end)
 end
 
 function scene:show( event )
@@ -29,7 +30,7 @@ function scene:show( event )
   end
 end
 
-local function getProfile(service)
+example.getProfile = function(service)
   if service ~= "google" then
     print("Only 'google' is a valid service for this function")
     return
@@ -56,7 +57,8 @@ local function listener(evt)
   if evt.action == "login" then
     if evt.status == 1 then
       print("User logged in using: "..(evt.service or "Unknown"))
-      getProfile(evt.service)
+      example.getProfile(evt.service)
+      OAuth.showManagementPanel(false,false)
     elseif evt.status == 0 then
       print("Waiting")
     elseif evt.status == -1 then

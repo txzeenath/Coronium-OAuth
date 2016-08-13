@@ -17,6 +17,7 @@ conTab['database'] = 'REG_TINYWAR'
 local queueTableName = tablePrefix.."_".."QUEUE"
 local keyTableName = tablePrefix.."_".."KEYS"
 local userTableName = tablePrefix.."_".."USERS"
+local sqlStr = cloud.mysql.string
 local function sqlUUID()
   local id = string.gsub(cloud.uuid(),"-","")
   return id
@@ -52,7 +53,7 @@ local function pruneAuth(reqKey)
   local db = cloud.mysql.databag(conTab)
   local result,err = db:delete({
       tableName=queueTableName,
-      where = "`EXPIRES` < "..cloud.time.epoch().." OR `reqKey`="..cloud.mysql.string(reqKey)
+      where = "`EXPIRES` < "..cloud.time.epoch().." OR `reqKey`="..sqlStr(reqKey)
     })
   return result,err
 end
@@ -78,7 +79,7 @@ OAuthLib.removeAuth = function(service,UUID)
   local db = cloud.mysql.databag(conTab)
   local result,err = db:delete({
       tableName=keyTableName,
-      where = '`UUID` = '..cloud.mysql.string(UUID)..' AND `SERVICE`='..cloud.mysql.string(service),
+      where = '`UUID` = '..sqlStr(UUID)..' AND `SERVICE`='..sqlStr(service),
       limit=1
     })
   return result,err
@@ -95,8 +96,8 @@ end
 -- -1 = failed. Client should try again.
 local function setAuthStatus(reqKey,statusCode,sessionID)
   local query = nil
-  if not sessionID then sessionID = 'NULL' else sessionID = cloud.mysql.string(sessionID) end
-  query = "UPDATE "..queueTableName.." SET `STATUS`="..statusCode..",`SESSIONID`=COALESCE("..sessionID..",`SESSIONID`) where `reqKey`="..cloud.mysql.string(reqKey).." LIMIT 1;"
+  if not sessionID then sessionID = 'NULL' else sessionID = sqlStr(sessionID) end
+  query = "UPDATE "..queueTableName.." SET `STATUS`="..statusCode..",`SESSIONID`=COALESCE("..sessionID..",`SESSIONID`) where `reqKey`="..sqlStr(reqKey).." LIMIT 1;"
   local result,err = cloud.mysql.query(conTab,query)
 
   if not result or not next(result) or err then return nil,(err or "Unknown") end
@@ -108,7 +109,7 @@ local function getAuth(reqKey)
   local db = cloud.mysql.databag(conTab)
   local res,err = db:select({
       tableName=queueTableName,
-      where = "`reqKey`="..cloud.mysql.string(reqKey),
+      where = "`reqKey`="..sqlStr(reqKey),
       limit = 1
     })
 
@@ -148,13 +149,13 @@ local function writeKeys(UUID,OID,service,refresh,active,expires,scopes)
   if not expires then expires = 999999999 end --Never expires
   if not refresh then refresh = 'NULL' end
 
-  local UUID = cloud.mysql.string(UUID)
-  local OID = cloud.mysql.string(OID)
-  local refresh = cloud.mysql.string(refresh)
-  local active = cloud.mysql.string(active)
-  local scopes = cloud.mysql.string(scopes)
+  local UUID = sqlStr(UUID)
+  local OID = sqlStr(OID)
+  local refresh = sqlStr(refresh)
+  local active = sqlStr(active)
+  local scopes = sqlStr(scopes)
   local expires = cloud.time.epoch()+tonumber(expires)
-  local service = cloud.mysql.string(service)
+  local service = sqlStr(service)
   local query = nil
   local tables = "(`UUID`,`SERVICE`,`OAUTH_ID`,`REFRESH`,`ACTIVE`,`EXPIRES`,`SCOPES`,`CREATED`)"
   local values = "VALUES("..UUID..","..service..","..OID..","..refresh..","..active..","..expires..","..scopes..","..cloud.time.epoch()..")"
@@ -175,8 +176,8 @@ local function writeUser(UUID,sessionID)
     return nil,"Missing arguments"
   end
 
-  UUID = cloud.mysql.string(UUID)
-  sessionID = cloud.mysql.string(sessionID)
+  UUID = sqlStr(UUID)
+  sessionID = sqlStr(sessionID)
   local query = nil
   local tables = "(`UUID`, `SESSIONID`,`lastLogin`)"
   local values = "VALUES("..UUID..","..sessionID..","..cloud.time.epoch()..")"
@@ -199,8 +200,8 @@ OAuthLib.logoutUser = function(UUID,sessionID)
   end
   if not UUID then UUID = "" end
   if not sessionID then sessionID = "" end
-  UUID = cloud.mysql.string(UUID)
-  sessionID = cloud.mysql.string(sessionID)
+  UUID = sqlStr(UUID)
+  sessionID = sqlStr(sessionID)
   local query = "UPDATE `"..userTableName.."` SET `SESSIONID`="..sqlUUID().." WHERE `UUID`="..UUID.." OR `SESSIONID`="..sessionID.." LIMIT 1;"
   local res,err = cloud.mysql.query(conTab, query)
 
@@ -216,9 +217,9 @@ OAuthLib.getKeys = function(UUID,OAuthID,service,limit,column)
 
   if not UUID then UUID = "" end
   if not OAuthID then OAuthID = "" end
-  UUID = cloud.mysql.string(UUID)
-  OAuthID = cloud.mysql.string(OAuthID)
-  if service then service = cloud.mysql.string(service) end
+  UUID = sqlStr(UUID)
+  OAuthID = sqlStr(OAuthID)
+  if service then service = sqlStr(service) end
   if not column then column = "*" end
   local query = nil
   if service then 
@@ -249,8 +250,8 @@ OAuthLib.getUser = function(UUID,sessionID)
   debug("Getting user")
   if not UUID then UUID = "" end
   if not sessionID then sessionID = "" end
-  UUID = cloud.mysql.string(UUID)
-  sessionID = cloud.mysql.string(sessionID)
+  UUID = sqlStr(UUID)
+  sessionID = sqlStr(sessionID)
   local db = cloud.mysql.databag(conTab)
   local res,err = db:select({
       tableName=userTableName,
