@@ -16,7 +16,7 @@ function api.post.getServiceList(input)
 #####Inputs:   
 None
 #####Returns:   
-A table of services from api.lua
+A table of supported services.
 
 ---
 ```lua
